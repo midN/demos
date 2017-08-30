@@ -1,0 +1,130 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Parameters:
+  VpcCidr:
+    AllowedPattern: (\d{1,2})\.(\d{1,2})\.0\.0\/16
+    ConstraintDescription: must be a valid VPC CIDR range in the form of x.x.x.x/x.
+    Default: 50.50.0.0/16
+    Description: VPC Cidr block
+    MaxLength: '18'
+    MinLength: '9'
+    Type: String
+
+  SubnetCidrA:
+    AllowedPattern: (\d{1,2})\.(\d{1,2})\.(\d{1,2})\.0\/24
+    ConstraintDescription: must be a valid Subnet CIDR range in the form of x.x.x.x/x.
+    Default: 50.50.50.0/24
+    Description: Subnet Cidr block
+    MaxLength: '18'
+    MinLength: '9'
+    Type: String
+
+  SubnetCidrB:
+    AllowedPattern: (\d{1,2})\.(\d{1,2})\.(\d{1,2})\.0\/24
+    ConstraintDescription: must be a valid Subnet CIDR range in the form of x.x.x.x/x.
+    Default: 50.50.60.0/24
+    Description: Subnet Cidr block
+    MaxLength: '18'
+    MinLength: '9'
+    Type: String
+
+Resources:
+  # VPC
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: such-vpc
+
+  # Subnets
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: 'eu-west-1a'
+      CidrBlock: !Ref SubnetCidrA
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: wow-subnet-puba
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: 'eu-west-1b'
+      CidrBlock: !Ref SubnetCidrB
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: wow-subnet-pubb
+
+  # Route Tables
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: much-doge-routetable
+
+  # Associate subnet with route table
+  ## Public
+  PublicSubnetRTAssociationA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+
+  PublicSubnetRTAssociationB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetB
+
+  # Gateway
+  VPCGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: vpc-gateway
+
+  # Attach Gateway to VPC
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref VPCGateway
+
+  # Add a route with internet gateway to Public route table
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref VPCGateway
+      RouteTableId: !Ref PublicRouteTable
+
+Outputs:
+  VpcId:
+    Description: Virtual Private Cloud
+    Value: !Ref VPC
+    Export:
+      Name: "VpcId"
+  VpcCidr:
+    Description: VPCs CIDR block
+    Value: !GetAtt VPC.CidrBlock
+    Export:
+      Name: "VpcCidr"
+  PublicSubnet:
+    Description: Public Subnet in zone A
+    Value: !Ref PublicSubnet
+    Export:
+      Name: "PublicSubnetA"
+  PublicSubnetB:
+    Description: Public Subnet in zone B
+    Value: !Ref PublicSubnetB
+    Export:
+      Name: "PublicSubnetB"

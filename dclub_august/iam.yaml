@@ -1,0 +1,87 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: |
+  AWS CloudFormation IAM template
+  This template is used to created IAM Policies, Groups and Users.
+
+Parameters:
+  DefaultPassword:
+    AllowedPattern: '[a-zA-Z0-9]*'
+    ConstraintDescription: must contain only alphanumeric characters.
+    Description: Default first login password for IAM users.
+    MaxLength: '41'
+    MinLength: '6'
+    NoEcho: 'true'
+    Type: String
+
+Resources:
+  # Groups
+  admins:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: Admins
+
+  developers:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: Developers
+
+  # Policies
+  adminpolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      Groups:
+        - !Ref admins
+      PolicyName: SuperAdmin
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: '*'
+            Resource: '*'
+
+  developerpolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      Groups:
+        - !Ref developers
+      PolicyName: Developer
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'ec2:Describe*'
+              - 'ec2:GetConsoleOutput'
+              - 'ec2:GetConsoleScreenshot'
+              - 'ecs:Describe*'
+              - 'ecs:List*'
+              - 'rds:Describe*'
+              - 'tag:Get*'
+              - 'cloudwatch:GetMetricStatistics'
+              - 'cloudformation:List*'
+              - 'cloudformation:Get*'
+              - 'cloudformation:Describe*'
+            Resource: '*'
+
+  # Users
+  ## Admins
+  awtf:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: awtf
+      Groups:
+        - !Ref admins
+      LoginProfile:
+        Password: !Ref DefaultPassword
+        PasswordResetRequired: true
+
+  ## Developers
+  anotsowtf:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: anotsowtf
+      Groups:
+        - !Ref developers
+      LoginProfile:
+        Password: !Ref DefaultPassword
+        PasswordResetRequired: true

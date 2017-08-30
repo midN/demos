@@ -1,0 +1,192 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Resources:
+  ## Roles
+  ECSServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ecs.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+      - PolicyName: ecs-service
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action: ['elasticloadbalancing:DeregisterInstancesFromLoadBalancer', 'elasticloadbalancing:DeregisterTargets',
+              'elasticloadbalancing:Describe*', 'elasticloadbalancing:RegisterInstancesWithLoadBalancer',
+              'elasticloadbalancing:RegisterTargets', 'ec2:Describe*', 'ec2:AuthorizeSecurityGroupIngress']
+            Resource: '*'
+
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ec2.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+      - PolicyName: ecs-service
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action: ['ecs:CreateCluster', 'ecs:DeregisterContainerInstance', 'ecs:DiscoverPollEndpoint',
+              'ecs:Poll', 'ecs:RegisterContainerInstance', 'ecs:StartTelemetrySession',
+              'ecs:Submit*', 'logs:CreateLogStream', 'logs:PutLogEvents']
+            Resource: '*'
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles: [!Ref 'EC2Role']
+
+
+  ## SG
+  EcsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Best SG in the world
+      VpcId: !ImportValue VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: 0.0.0.0/0
+
+
+  ## Instances
+  ECSAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      LaunchConfigurationName: !Ref LaunchConfiguration
+      MinSize: 1
+      MaxSize: 2
+      DesiredCapacity: 2
+      AvailabilityZones:
+        - eu-west-1a
+        - eu-west-1b
+      VPCZoneIdentifier:
+        - !ImportValue PublicSubnetA
+        - !ImportValue PublicSubnetB
+    UpdatePolicy:
+      AutoScalingReplacingUpdate:
+        WillReplace: true
+
+  LaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      AssociatePublicIpAddress: true
+      ImageId: ami-8fcc32f6
+      SecurityGroups:
+        - !Ref EcsSecurityGroup
+      InstanceType: t2.nano
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          echo ECS_CLUSTER=${ECSCluster} >> /etc/ecs/ecs.config
+
+  ## ECS
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      ContainerDefinitions:
+      - Name: app
+        Cpu: 10
+        Essential: true
+        Image: httpd:2.4
+        Memory: 100
+        MountPoints:
+        - ContainerPath: /usr/local/apache2/htdocs
+          SourceVolume: my-vol
+        PortMappings:
+        - ContainerPort: 80
+          HostPort: 80
+      - Name: busybox
+        Cpu: 10
+#        Command: ["exit 1"]
+        Command: ['/bin/sh -c "while true; do echo ''<html> <head> <title>Amazon ECS
+            Sample App</title> <style>body {margin-top: 40px; background-color: #333;}
+            </style> </head><body> <div style=color:white;text-align:center> <h1>Amazon
+            ECS Sample App</h1> <h2>Congratulations!</h2> <p>Your application is now
+            running on a container in Amazon ECS.</p>'' > top; /bin/date > date ;
+            echo ''</div></body></html>'' > bottom; cat top date bottom > /usr/local/apache2/htdocs/index.html
+            ; sleep 1; done"']
+        EntryPoint: [sh, -c]
+        Essential: false
+        Image: busybox
+        Memory: 100
+        VolumesFrom:
+        - SourceContainer: app
+      Volumes:
+      - Name: my-vol
+
+  EcsService:
+    Type: AWS::ECS::Service
+    DependsOn: ALBListener
+    Properties:
+      Cluster: !Ref ECSCluster
+      DesiredCount: 2
+      LoadBalancers:
+      - ContainerName: app
+        ContainerPort: 80
+        TargetGroupArn: !Ref EcsTg
+      Role: !Ref ECSServiceRole
+      TaskDefinition: !Ref TaskDefinition
+
+  ## ELB
+  EcsAlb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: ecsalb
+      Scheme: internet-facing
+      Subnets:
+        - !ImportValue PublicSubnetA
+        - !ImportValue PublicSubnetB
+      SecurityGroups:
+        - !Ref EcsSecurityGroup
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+      - Type: forward
+        TargetGroupArn: !Ref EcsTg
+      LoadBalancerArn: !Ref EcsAlb
+      Port: '80'
+      Protocol: HTTP
+    DependsOn: ECSServiceRole
+
+  EcsTg:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    DependsOn: EcsAlb
+    Properties:
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      HealthCheckPort: 80
+      Name: ecstg
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 2
+      VpcId: !ImportValue VpcId
+      Matcher:
+        HttpCode: 200
+
+Outputs:
+  ElbDns:
+    Description: ELB DNS
+    Value: !GetAtt EcsAlb.DNSName
