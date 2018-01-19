@@ -1,0 +1,111 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+
+Parameters:
+  Token:
+    Type: String
+    Description: Github OAuth Token
+    NoEcho: true
+
+Resources:
+  BuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - codebuild.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: cbuild
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:*
+                  - s3:*
+                Resource: "*"
+            Version: '2012-10-17'
+
+  PipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - codepipeline.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      Policies:
+      - PolicyName: cpipeline
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action:
+              - iam:PassRole
+              - codebuild:*
+              - codecommit:*
+              - codedeploy:*
+              - s3:*
+            Resource: "*"
+          Version: '2012-10-17'
+
+  Build:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: web
+      ServiceRole: !GetAtt BuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/ruby:2.3.1
+      Source:
+        Type: CODEPIPELINE
+
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      RoleArn: !GetAtt PipelineRole.Arn
+      Stages:
+        - Name: Source
+          Actions:
+            - InputArtifacts: []
+              Name: Source
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Version: 1
+                Provider: GitHub
+              OutputArtifacts:
+                - Name: source
+              Configuration:
+                Owner: midN
+                Repo: midN.github.io
+                Branch: master
+                OAuthToken: !Ref Token
+        - Name: Deploy
+          Actions:
+            - Name: Artifact
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: 1
+                Provider: CodeBuild
+              InputArtifacts:
+                - Name: source
+              OutputArtifacts:
+                - Name: output
+              Configuration:
+                ProjectName: !Ref Build
+      ArtifactStore:
+        Type: S3
+        Location: awtf-pipelines
